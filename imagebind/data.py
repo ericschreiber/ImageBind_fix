@@ -341,3 +341,65 @@ def load_and_transform_video_data(
         video_outputs.append(all_video)
 
     return torch.stack(video_outputs, dim=0).to(device)
+
+
+def load_and_transform_IMU_data(IMU_paths, device, T=1170, out_T=2000):
+    assert (
+        T <= out_T
+    ), "T should be smaller or equal to out_T. otherwise not implemented"
+    if IMU_paths is None:
+        return None
+
+    IMU_outputs = []
+    for IMU_path in IMU_paths:
+        # the file is a csv with component_idx,component_timestamp_ms,canonical_timestamp_ms,gyro_x,gyro_y,gyro_z,accl_x,accl_y,accl_z
+        # load only the 6 last columns and make tensors of shape (6, T)
+        # if there are not enough rows, pad with zeros
+        with open(IMU_path, "r") as f:
+            IMU_data = []
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                # skip the header
+                if i == 0:
+                    continue
+                components = line.strip().split(",")
+                IMU_data.append(components[-6:])
+
+                if i % T == 0:
+                    # make the the form (6, 2000) and then append to the list
+                    IMU_data = [[float(x) for x in component] for component in IMU_data]
+                    if T == out_T:
+                        IMU_outputs.append(
+                            torch.tensor(IMU_data, dtype=torch.float32).transpose(0, 1)
+                        )
+                    else:
+                        # we need to pad.
+                        if len(IMU_outputs) > 0:
+                            IMU_outputs.append(
+                                torch.cat(
+                                    (
+                                        IMU_outputs[-1][:, -(out_T - T) :],
+                                        torch.tensor(
+                                            IMU_data, dtype=torch.float32
+                                        ).transpose(0, 1),
+                                    ),
+                                    dim=1,
+                                )
+                            )
+                        else:
+                            IMU_outputs.append(
+                                torch.cat(
+                                    (
+                                        torch.zeros((6, T), dtype=torch.float32)[
+                                            :, -(out_T - T) :
+                                        ],
+                                        torch.tensor(
+                                            IMU_data, dtype=torch.float32
+                                        ).transpose(0, 1),
+                                    ),
+                                    dim=1,
+                                )
+                            )
+                    IMU_data = []
+
+    return torch.stack(IMU_outputs, dim=0).to(device)
