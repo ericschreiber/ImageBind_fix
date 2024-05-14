@@ -403,3 +403,45 @@ def load_and_transform_IMU_data(IMU_paths, device, T=1170, out_T=2000):
                     IMU_data = []
 
     return torch.stack(IMU_outputs, dim=0).to(device)
+
+
+
+def load_and_transform_IMU_data_at_time_point(IMU_path, device, time_point_in_sec: float):   
+    if IMU_path is None:
+        return None
+    
+    interval_length=2000
+    half_interval_length=int(interval_length/2)
+    one_second_interval_length=400
+
+    middle_IMU_measurement = int(time_point_in_sec*one_second_interval_length)
+    IMU_data = []
+
+    # Get the the IMU data (6, 2000) for each video with the time_point +- 1000 measurements
+
+    if middle_IMU_measurement < half_interval_length:
+        start_IMU_measurement = 0
+        end_IMU_measurement = middle_IMU_measurement + half_interval_length
+        padding = half_interval_length - middle_IMU_measurement + 1
+        # pad with zeros
+        for i in range(padding):
+            IMU_data.append(torch.zeros(6, dtype=torch.float32))
+    else:
+        start_IMU_measurement = middle_IMU_measurement - half_interval_length
+        end_IMU_measurement = middle_IMU_measurement + half_interval_length
+
+    with open(IMU_path, "r") as f:
+        lines = f.readlines()
+        for i, line in enumerate(lines):
+            if i == 0:
+                continue
+            components = line.strip().split(",")
+            if i >= start_IMU_measurement and i < end_IMU_measurement:
+                IMU_data.append(torch.tensor([float(x) for x in components[-6:]], dtype=torch.float32))
+            if i == end_IMU_measurement:
+                break
+
+    IMU_data = torch.stack(IMU_data, dim=1).unsqueeze(0)
+    print(IMU_data.shape)
+    assert IMU_data.shape == (1, 6, interval_length), "IMU data shape is not correct"
+    return IMU_data.to(device)
